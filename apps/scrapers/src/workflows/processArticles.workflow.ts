@@ -45,7 +45,7 @@ export class ProcessArticles extends WorkflowEntrypoint<Env, Params> {
     }
 
     // get articles to process
-    const articles = await step.do('get articles', dbStepConfig, async () => getUnprocessedArticles({ limit: 200 }));
+    const articles = await step.do('get articles', dbStepConfig, async () => getUnprocessedArticles({ limit: 50 }));
 
     // Create rate limiter with article processing specific settings
     const rateLimiter = new DomainRateLimiter<{
@@ -54,7 +54,7 @@ export class ProcessArticles extends WorkflowEntrypoint<Env, Params> {
       title: string;
       publishedAt: Date | null;
     }>({
-      maxConcurrent: 8,
+      maxConcurrent: 5,
       globalCooldownMs: 1000,
       domainCooldownMs: 5000,
     });
@@ -68,129 +68,142 @@ export class ProcessArticles extends WorkflowEntrypoint<Env, Params> {
 
     const trickyDomains = ['reuters.com', 'nytimes.com'];
 
-    // Process articles with rate limiting
-    const articleResults = await rateLimiter.processBatch(articles, step, async (article, domain) => {
-      // Skip PDF files immediately
-      if (article.url.toLowerCase().endsWith('.pdf')) {
-        return { id: article.id, success: false, error: 'pdf' };
-      }
-
-      const result = await step.do(
-        `scrape article ${article.id}`,
-        {
-          retries: { limit: 3, delay: '2 second', backoff: 'exponential' },
-          timeout: '1 minute',
-        },
-        async () => {
-          // start with light scraping
-          let articleData: { title: string; text: string; publishedTime: string | undefined } | undefined = undefined;
-
-          // if we're from a tricky domain, fetch with browser first
-          if (trickyDomains.includes(domain)) {
-            const articleResult = await getArticleWithBrowser(env, article.url);
-            if (articleResult.isErr()) {
-              return { id: article.id, success: false, error: articleResult.error.error };
-            }
-            articleData = articleResult.value;
-          }
-
-          // otherwise, start with fetch & then browser if that fails
-          const lightResult = await getArticleWithFetch(article.url);
-          if (lightResult.isErr()) {
-            // rand jitter between .5 & 3 seconds
-            const jitterTime = Math.random() * 2500 + 500;
-            await step.sleep(`jitter`, jitterTime);
-
-            const articleResult = await getArticleWithBrowser(env, article.url);
-            if (articleResult.isErr()) {
-              return { id: article.id, success: false, error: articleResult.error.error };
-            }
-
-            articleData = articleResult.value;
-          } else articleData = lightResult.value;
-
-          return { id: article.id, success: true, html: articleData };
-        }
-      );
-
-      return result;
-    });
-
-    // Handle results
-    for (const result of articleResults) {
-      if (result.success && 'html' in result) {
-        articlesToProcess.push({
-          id: result.id,
-          title: result.html.title,
-          text: result.html.text,
-          publishedTime: result.html.publishedTime,
-        });
-      } else {
-        // update failed articles in DB with the fail reason
-        await step.do(`update db for failed article ${result.id}`, dbStepConfig, async () => {
-          await db
-            .update($articles)
-            .set({
-              processedAt: new Date(),
-              failReason: result.error ? String(result.error) : 'Unknown error',
-            })
-            .where(eq($articles.id, result.id));
-        });
-      }
+    // Process articles in smaller chunks
+    const CHUNK_SIZE = 10;
+    const articleChunks = [];
+    for (let i = 0; i < articles.length; i += CHUNK_SIZE) {
+      articleChunks.push(articles.slice(i, i + CHUNK_SIZE));
     }
 
-    // process with LLM
-    await Promise.all(
-      articlesToProcess.map(async article => {
-        const articleAnalysis = await step.do(
-          `analyze article ${article.id}`,
+    // Process each chunk separately
+    for (const chunk of articleChunks) {
+      // Process articles with rate limiting
+      const articleResults = await rateLimiter.processBatch(chunk, step, async (article, domain) => {
+        // Skip PDF files immediately
+        if (article.url.toLowerCase().endsWith('.pdf')) {
+          return { id: article.id, success: false, error: 'pdf' };
+        }
+
+        const result = await step.do(
+          `scrape article ${article.id}`,
           {
-            retries: { limit: 3, delay: '2 seconds', backoff: 'exponential' },
+            retries: { limit: 3, delay: '2 second', backoff: 'exponential' },
             timeout: '1 minute',
           },
           async () => {
-            const response = await generateWithOpenRouter(
-              env,
-              getArticleAnalysisPrompt(article.title, article.text),
-              articleAnalysisSchema
-            );
-            return response.object;
+            // start with light scraping
+            let articleData: { title: string; text: string; publishedTime: string | undefined } | undefined = undefined;
+
+            // if we're from a tricky domain, fetch with browser first
+            if (trickyDomains.includes(domain)) {
+              const articleResult = await getArticleWithBrowser(env, article.url);
+              if (articleResult.isErr()) {
+                return { id: article.id, success: false, error: articleResult.error.error };
+              }
+              articleData = articleResult.value;
+            }
+
+            // otherwise, start with fetch & then browser if that fails
+            const lightResult = await getArticleWithFetch(article.url);
+            if (lightResult.isErr()) {
+              // rand jitter between .5 & 3 seconds
+              const jitterTime = Math.random() * 2500 + 500;
+              await step.sleep(`jitter`, jitterTime);
+
+              const articleResult = await getArticleWithBrowser(env, article.url);
+              if (articleResult.isErr()) {
+                return { id: article.id, success: false, error: articleResult.error.error };
+              }
+
+              articleData = articleResult.value;
+            } else articleData = lightResult.value;
+
+            return { id: article.id, success: true, html: articleData };
           }
         );
 
-        // update db
-        await step.do(`update db for article ${article.id}`, dbStepConfig, async () => {
-          await db
-            .update($articles)
-            .set({
-              processedAt: new Date(),
-              content: article.text,
-              title: article.title,
-              completeness: articleAnalysis.completeness,
-              relevance: articleAnalysis.relevance,
-              language: articleAnalysis.language,
-              location: articleAnalysis.location,
-              summary: (() => {
-                if (articleAnalysis.summary === undefined) return null;
-                let txt = '';
-                txt += `HEADLINE: ${articleAnalysis.summary.HEADLINE?.trim() || ''}\n`;
-                txt += `ENTITIES: ${Array.isArray(articleAnalysis.summary.ENTITIES) ? articleAnalysis.summary.ENTITIES.join(', ') : ''}\n`;
-                txt += `EVENT: ${articleAnalysis.summary.EVENT?.trim() || ''}\n`;
-                txt += `CONTEXT: ${articleAnalysis.summary.CONTEXT?.trim() || ''}\n`;
-                return txt.trim();
-              })(),
-            })
-            .where(eq($articles.id, article.id))
-            .execute();
-        });
-      })
-    );
+        return result;
+      });
 
-    console.log(`Processed ${articlesToProcess.length} articles`);
+      // Handle results for this chunk
+      for (const result of articleResults) {
+        if (result.success && 'html' in result) {
+          articlesToProcess.push({
+            id: result.id,
+            title: result.html.title,
+            text: result.html.text,
+            publishedTime: result.html.publishedTime,
+          });
+        } else {
+          // update failed articles in DB with the fail reason
+          await step.do(`update db for failed article ${result.id}`, dbStepConfig, async () => {
+            await db
+              .update($articles)
+              .set({
+                processedAt: new Date(),
+                failReason: result.error ? String(result.error) : 'Unknown error',
+              })
+              .where(eq($articles.id, result.id));
+          });
+        }
+      }
+
+      // Process LLM analysis for this chunk
+      await Promise.all(
+        articlesToProcess.map(async article => {
+          const articleAnalysis = await step.do(
+            `analyze article ${article.id}`,
+            {
+              retries: { limit: 3, delay: '2 seconds', backoff: 'exponential' },
+              timeout: '1 minute',
+            },
+            async () => {
+              const response = await generateWithOpenRouter(
+                env,
+                getArticleAnalysisPrompt(article.title, article.text),
+                articleAnalysisSchema
+              );
+              return response.object;
+            }
+          );
+
+          // update db
+          await step.do(`update db for article ${article.id}`, dbStepConfig, async () => {
+            await db
+              .update($articles)
+              .set({
+                processedAt: new Date(),
+                content: article.text,
+                title: article.title,
+                completeness: articleAnalysis.completeness,
+                relevance: articleAnalysis.relevance,
+                language: articleAnalysis.language,
+                location: articleAnalysis.location,
+                summary: (() => {
+                  if (articleAnalysis.summary === undefined) return null;
+                  let txt = '';
+                  txt += `HEADLINE: ${articleAnalysis.summary.HEADLINE?.trim() || ''}\n`;
+                  txt += `ENTITIES: ${Array.isArray(articleAnalysis.summary.ENTITIES) ? articleAnalysis.summary.ENTITIES.join(', ') : ''}\n`;
+                  txt += `EVENT: ${articleAnalysis.summary.EVENT?.trim() || ''}\n`;
+                  txt += `CONTEXT: ${articleAnalysis.summary.CONTEXT?.trim() || ''}\n`;
+                  return txt.trim();
+                })(),
+              })
+              .where(eq($articles.id, article.id))
+              .execute();
+          });
+        })
+      );
+
+      // Clear the articlesToProcess array after processing this chunk
+      articlesToProcess.length = 0;
+    }
+
+    console.log(`Processed ${articles.length} articles`);
 
     // check if there are articles to process still
     const remainingArticles = await step.do('get remaining articles', dbStepConfig, async () =>
-      getUnprocessedArticles({ limit: 100 })
+      getUnprocessedArticles({ limit: 50 })
     );
     if (remainingArticles.length > 0) {
       console.log(`Found at least ${remainingArticles.length} remaining articles to process`);
