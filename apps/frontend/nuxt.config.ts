@@ -1,5 +1,3 @@
-import tailwindcss from '@tailwindcss/vite';
-
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   app: {
@@ -19,9 +17,10 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   css: ['~/assets/css/main.css'],
 
-  vite: {
-    plugins: [tailwindcss()],
-  },
+  modules: [
+    '@nuxtjs/color-mode',
+    '@nuxtjs/tailwindcss'
+  ],
 
   runtimeConfig: {
     public: {
@@ -41,8 +40,6 @@ export default defineNuxtConfig({
       autoSubfolderIndex: false,
     },
   },
-
-  modules: ['@nuxtjs/color-mode'],
 
   colorMode: {
     classSuffix: '',
