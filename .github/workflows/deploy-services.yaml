@@ -62,12 +62,10 @@ jobs:
           workingDirectory: 'apps/scrapers'
           environment: production
           secrets: |
-            GOOGLE_BASE_URL
-            GOOGLE_API_KEY
             DATABASE_URL
             MERIDIAN_SECRET_KEY
+            OPENROUTER_API_KEY
         env:
-          GOOGLE_BASE_URL: ${{ secrets.GOOGLE_BASE_URL }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           MERIDIAN_SECRET_KEY: ${{ secrets.MERIDIAN_SECRET_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}

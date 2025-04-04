@@ -8,7 +8,7 @@ function getArticleAnalysisPrompt(title: string, content: string) {
 ${content.trim()}
 </scraped_news_article>
 
-Extract the following information from this news article and return it as JSON:
+Extract the following information from this news article and return it as a single JSON object (not an array):
 
 {
   "language": "string",  // ISO 639-1 alpha-2 language code of the main language of the article
@@ -39,7 +39,7 @@ Summary criteria, if article is RELEVANT and (COMPLETE or PARTIAL_USEFUL):
 - focus on extracting *distinct* details that would help cluster similar stories together. ignore fluff, opinions, and padding
 - these summaries will be used for clustering, so surface what makes this story unique or similar to others
 
-Start now and return only the JSON object.
+Start now and return only a single JSON object (not an array).
 `.trim();
 }
 
@@ -50,10 +50,10 @@ export const articleAnalysisSchema = z.object({
   relevance: z.enum(['RELEVANT', 'NOT_RELEVANT']),
   summary: z
     .object({
-      headline: z.string(),
-      entities: z.array(z.string()),
-      event: z.string(),
-      context: z.string(),
+      HEADLINE: z.string(),
+      ENTITIES: z.array(z.string()),
+      EVENT: z.string(),
+      CONTEXT: z.string(),
     })
     .optional(),
 });

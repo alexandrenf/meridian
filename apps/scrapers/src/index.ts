@@ -13,6 +13,7 @@ export type Env = {
 
   GOOGLE_API_KEY: string;
   GOOGLE_BASE_URL: string;
+  OPENROUTER_API_KEY: string;
 
   MERIDIAN_SECRET_KEY: string;
 };

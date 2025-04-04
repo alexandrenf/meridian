@@ -1,14 +1,13 @@
 import getArticleAnalysisPrompt, { articleAnalysisSchema } from '../prompts/articleAnalysis.prompt';
 import { $articles, and, eq, gte, isNull, sql } from '@meridian/database';
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { Env } from '../index';
-import { generateObject } from 'ai';
 import { getArticleWithBrowser, getArticleWithFetch } from '../lib/puppeteer';
 import { getDb } from '../lib/utils';
 import { WorkflowEntrypoint, WorkflowStep, WorkflowEvent, WorkflowStepConfig } from 'cloudflare:workers';
 import { err, ok } from 'neverthrow';
 import { ResultAsync } from 'neverthrow';
 import { DomainRateLimiter } from '../lib/rateLimiter';
+import { generateWithOpenRouter } from '../lib/openrouter';
 
 const dbStepConfig: WorkflowStepConfig = {
   retries: { limit: 3, delay: '1 second', backoff: 'linear' },
@@ -20,7 +19,6 @@ export class ProcessArticles extends WorkflowEntrypoint<Env, Params> {
   async run(_event: WorkflowEvent<Params>, step: WorkflowStep) {
     const env = this.env;
     const db = getDb(env.DATABASE_URL);
-    const google = createGoogleGenerativeAI({ apiKey: env.GOOGLE_API_KEY, baseURL: env.GOOGLE_BASE_URL });
 
     async function getUnprocessedArticles(opts: { limit?: number }) {
       const articles = await db
@@ -151,12 +149,11 @@ export class ProcessArticles extends WorkflowEntrypoint<Env, Params> {
             timeout: '1 minute',
           },
           async () => {
-            const response = await generateObject({
-              model: google('gemini-2.0-flash'),
-              temperature: 0,
-              prompt: getArticleAnalysisPrompt(article.title, article.text),
-              schema: articleAnalysisSchema,
-            });
+            const response = await generateWithOpenRouter(
+              env,
+              getArticleAnalysisPrompt(article.title, article.text),
+              articleAnalysisSchema
+            );
             return response.object;
           }
         );
@@ -176,10 +173,10 @@ export class ProcessArticles extends WorkflowEntrypoint<Env, Params> {
               summary: (() => {
                 if (articleAnalysis.summary === undefined) return null;
                 let txt = '';
-                txt += `HEADLINE: ${articleAnalysis.summary.headline.trim()}\n`;
-                txt += `ENTITIES: ${articleAnalysis.summary.entities.join(', ')}\n`;
-                txt += `EVENT: ${articleAnalysis.summary.event.trim()}\n`;
-                txt += `CONTEXT: ${articleAnalysis.summary.context.trim()}\n`;
+                txt += `HEADLINE: ${articleAnalysis.summary.HEADLINE?.trim() || ''}\n`;
+                txt += `ENTITIES: ${Array.isArray(articleAnalysis.summary.ENTITIES) ? articleAnalysis.summary.ENTITIES.join(', ') : ''}\n`;
+                txt += `EVENT: ${articleAnalysis.summary.EVENT?.trim() || ''}\n`;
+                txt += `CONTEXT: ${articleAnalysis.summary.CONTEXT?.trim() || ''}\n`;
                 return txt.trim();
               })(),
             })

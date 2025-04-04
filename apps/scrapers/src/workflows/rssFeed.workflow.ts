@@ -144,8 +144,19 @@ export class ScrapeRssFeed extends WorkflowEntrypoint<Env, Params> {
     }
 
     await step.do('trigger_article_processor', dbStepConfig, async () => {
+      console.log(`Triggering article processor workflow after scraping ${allArticles.length} articles`);
+      
+      // Create a new workflow instance
+      const workflowId = crypto.randomUUID();
+      console.log(`Creating workflow with ID: ${workflowId}`);
+      
       const workflow = await startProcessArticleWorkflow(this.env);
-      if (workflow.isErr()) throw workflow.error;
+      if (workflow.isErr()) {
+        console.error(`Failed to trigger article processor workflow: ${workflow.error.message}`);
+        throw workflow.error;
+      }
+      
+      console.log(`Successfully triggered article processor workflow with ID: ${workflow.value.id}`);
       return workflow.value.id;
     });
   }
