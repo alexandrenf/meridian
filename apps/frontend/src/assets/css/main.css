@@ -1,9 +1,11 @@
-@import 'tailwindcss';
-@plugin "@tailwindcss/typography";
-@custom-variant dark (&:where(.dark, .dark *));
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-u {
-  @apply text-lg;
+@layer base {
+  u {
+    @apply text-lg;
+  }
 }
 
 /* p {
