@@ -15,7 +15,6 @@
     "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
-    "cursor-tools": "latest",
     "prettier": "^3.5.3",
     "turbo": "^2.5.0",
     "typescript": "5.8.2"
