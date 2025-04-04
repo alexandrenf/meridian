@@ -183,7 +183,18 @@ export class ProcessArticles extends WorkflowEntrypoint<Env, Params> {
                   if (articleAnalysis.summary === undefined) return null;
                   let txt = '';
                   txt += `HEADLINE: ${articleAnalysis.summary.HEADLINE?.trim() || ''}\n`;
-                  txt += `ENTITIES: ${Array.isArray(articleAnalysis.summary.ENTITIES) ? articleAnalysis.summary.ENTITIES.join(', ') : ''}\n`;
+                  
+                  // Handle ENTITIES that might be a string instead of an array
+                  let entitiesText = '';
+                  if (articleAnalysis.summary.ENTITIES) {
+                    if (Array.isArray(articleAnalysis.summary.ENTITIES)) {
+                      entitiesText = articleAnalysis.summary.ENTITIES.join(', ');
+                    } else if (typeof articleAnalysis.summary.ENTITIES === 'string') {
+                      entitiesText = articleAnalysis.summary.ENTITIES;
+                    }
+                  }
+                  txt += `ENTITIES: ${entitiesText}\n`;
+                  
                   txt += `EVENT: ${articleAnalysis.summary.EVENT?.trim() || ''}\n`;
                   txt += `CONTEXT: ${articleAnalysis.summary.CONTEXT?.trim() || ''}\n`;
                   return txt.trim();

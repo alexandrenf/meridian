@@ -57,6 +57,18 @@ export async function generateWithOpenRouter(env: Env, prompt: string, schema: a
     // Handle array responses from Gemini by extracting the first item
     const objectToValidate = Array.isArray(parsed) ? parsed[0] : parsed;
     
+    // Pre-process the object to handle common issues
+    if (objectToValidate.summary && objectToValidate.summary.ENTITIES) {
+      // Convert ENTITIES from string to array if needed
+      if (typeof objectToValidate.summary.ENTITIES === 'string') {
+        // Split by commas and clean up each entity
+        objectToValidate.summary.ENTITIES = objectToValidate.summary.ENTITIES
+          .split(',')
+          .map((entity: string) => entity.trim())
+          .filter((entity: string) => entity.length > 0);
+      }
+    }
+    
     // Validate against the schema
     const validated = schema.parse(objectToValidate);
     return { object: validated };
