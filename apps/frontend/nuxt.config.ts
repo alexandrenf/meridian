@@ -22,15 +22,6 @@ export default defineNuxtConfig({
     '@nuxtjs/tailwindcss'
   ],
 
-  tailwindcss: {
-    config: {
-      plugins: [
-        // This will be properly handled by the Nuxt module
-        '@tailwindcss/typography'
-      ]
-    }
-  },
-
   runtimeConfig: {
     public: {
       WORKER_API: process.env.NUXT_PUBLIC_WORKER_API || 'http://localhost:8787',

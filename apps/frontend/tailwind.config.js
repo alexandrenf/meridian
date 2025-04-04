@@ -1,5 +1,5 @@
 /** @type {import('tailwindcss').Config} */
-export default {
+module.exports = {
   content: [
     './src/components/**/*.{js,vue,ts}',
     './src/layouts/**/*.vue',
@@ -13,6 +13,6 @@ export default {
     extend: {},
   },
   plugins: [
-    // We'll use the typography plugin through the Nuxt module instead
+    require('@tailwindcss/typography'),
   ],
 } 
